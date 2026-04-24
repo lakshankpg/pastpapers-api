@@ -1,0 +1,7 @@
+{
+  "name": "pastpapers-api",
+  "version": "1.0.0",
+  "dependencies": {
+    "@vercel/python": "^3.1.0"
+  }
+}
