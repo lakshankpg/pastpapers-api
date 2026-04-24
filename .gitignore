@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.vercel
+.env
+venv/
+.vscode/
+*.log
+.DS_Store
