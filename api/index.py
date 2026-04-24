@@ -32,7 +32,7 @@ def home():
             "all_ol_subjects": "/subjects?exam=ol",
             "maths_ol_papers": "/papers?subject=maths&exam=ol",
             "science_al_2022": "/papers?subject=science&exam=al&year=2022",
-            "search_history": "/search?q=history&exam=al"
+            "search_history": "/search?q=history&exam=ol"
         },
         "source": BASE_URL,
         "disclaimer": "For educational purposes only. Respect robots.txt and copyright."
@@ -73,12 +73,10 @@ def get_subjects(exam: str = Query("ol", regex="^(ol|al)$")):
         soup = BeautifulSoup(response.text, "html.parser")
         subjects = []
         
-        # Method 1: Find all category links
         for link in soup.find_all("a", href=True):
             href = link.get("href", "")
             text = link.get_text(strip=True)
             
-            # Filter for subject links
             if exam_path in href and href != exam_path and text and len(text) < 60:
                 if not any(skip in text.lower() for skip in ["download", "home", "contact", "about"]):
                     subject_name = re.sub(r'[^\w\s]', '', text).strip()
@@ -91,7 +89,6 @@ def get_subjects(exam: str = Query("ol", regex="^(ol|al)$")):
                             "url": href if href.startswith("http") else BASE_URL + href
                         })
         
-        # Remove duplicates by name
         seen_names = set()
         unique_subjects = []
         for s in subjects:
@@ -107,7 +104,6 @@ def get_subjects(exam: str = Query("ol", regex="^(ol|al)$")):
         })
         
     except Exception as e:
-        # Return fallback subjects if scraping fails
         fallback_subjects = get_fallback_subjects(exam)
         return JSONResponse({
             "success": True,
@@ -153,11 +149,9 @@ def get_papers(
 ):
     """Get past papers for a specific subject"""
     try:
-        # Build subject URL
         exam_path = "gce_ordinary_level" if exam == "ol" else "gce_advanced_level"
         subject_slug = subject.lower().replace(" ", "-")
         
-        # Try different URL patterns
         urls_to_try = [
             f"{BASE_URL}/{exam_path}/{subject_slug}/",
             f"{BASE_URL}/{exam_path}/{subject_slug}/downloads/",
@@ -165,11 +159,13 @@ def get_papers(
         ]
         
         soup = None
+        working_url = None
         for try_url in urls_to_try:
             try:
                 response = requests.get(try_url, headers=HEADERS, timeout=15)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, "html.parser")
+                    working_url = try_url
                     break
             except:
                 continue
@@ -179,7 +175,6 @@ def get_papers(
         
         papers = []
         
-        # Find all PDF links
         for link in soup.find_all("a", href=True):
             href = link.get("href", "")
             if href.endswith(".pdf"):
@@ -187,18 +182,15 @@ def get_papers(
                 if not paper_title:
                     paper_title = href.split("/")[-1].replace(".pdf", "").replace("-", " ")
                 
-                # Build full URL
                 if href.startswith("http"):
                     paper_url = href
                 elif href.startswith("/"):
                     paper_url = BASE_URL + href
                 else:
-                    paper_url = f"{try_url.rstrip('/')}/{href}"
+                    paper_url = f"{working_url.rstrip('/')}/{href}"
                 
-                # Extract metadata
                 paper_info = extract_paper_info(paper_title, paper_url)
                 
-                # Apply filters
                 if year and paper_info.get("year") != year:
                     continue
                 if medium:
@@ -209,7 +201,6 @@ def get_papers(
                 
                 papers.append(paper_info)
         
-        # Remove duplicates by URL
         unique_papers = {}
         for p in papers:
             if p["url"] not in unique_papers:
@@ -235,35 +226,31 @@ def get_papers(
 def get_fallback_papers(subject, exam, year, medium):
     """Return demo papers when scraping fails"""
     demo_papers = []
-    subjects_list = ["maths", "science", "english", "sinhala", "tamil", "history"]
-    subject_lower = subject.lower()
     
-    # Generate realistic demo data
     for y in [2023, 2022, 2021, 2020, 2019]:
         if year and str(y) != year:
             continue
             
         for m in ["sinhala", "tamil", "english"]:
-            if medium and medium not in m:
+            if medium and medium.lower() not in m:
                 continue
                 
-            if any(sub in subject_lower for sub in subjects_list):
+            demo_papers.append({
+                "title": f"{subject.title()} Past Paper {y} ({m.title()})",
+                "url": f"/papers/{subject}/{y}/{m}.pdf",
+                "year": str(y),
+                "medium": m,
+                "type": "question_paper"
+            })
+            
+            if y in [2022, 2023]:
                 demo_papers.append({
-                    "title": f"{subject.title()} Past Paper {y} ({m.title()})",
-                    "url": f"/papers/{subject}/{y}/{m}.pdf",
+                    "title": f"{subject.title()} Marking Scheme {y} ({m.title()})",
+                    "url": f"/papers/{subject}/{y}/{m}_answers.pdf",
                     "year": str(y),
                     "medium": m,
-                    "type": "question_paper"
+                    "type": "marking_scheme"
                 })
-                
-                if y in [2022, 2023]:
-                    demo_papers.append({
-                        "title": f"{subject.title()} Marking Scheme {y} ({m.title()})",
-                        "url": f"/papers/{subject}/{y}/{m}_answers.pdf",
-                        "year": str(y),
-                        "medium": m,
-                        "type": "marking_scheme"
-                    })
     
     return JSONResponse({
         "success": True,
@@ -278,19 +265,17 @@ def get_fallback_papers(subject, exam, year, medium):
 def extract_paper_info(title: str, url: str) -> dict:
     """Extract year, medium, and type from paper title/URL"""
     info = {
-        "title": title[:200],  # Limit title length
+        "title": title[:200],
         "url": url,
         "year": None,
         "medium": None,
         "type": None
     }
     
-    # Extract year (19xx or 20xx)
     year_match = re.search(r'(19|20)[0-9]{2}', title)
     if year_match:
         info["year"] = year_match.group()
     
-    # Extract medium
     title_lower = title.lower()
     if "sinhala" in title_lower or "සිංහල" in title:
         info["medium"] = "sinhala"
@@ -299,7 +284,6 @@ def extract_paper_info(title: str, url: str) -> dict:
     elif "english" in title_lower:
         info["medium"] = "english"
     
-    # Extract paper type
     if "marking" in title_lower or "answer" in title_lower or "scheme" in title_lower:
         info["type"] = "marking_scheme"
     elif "paper" in title_lower or "question" in title_lower:
@@ -316,24 +300,16 @@ def search_papers(
     year: Optional[str] = None
 ):
     """Search for papers across subjects"""
-    # First try to get subjects
     try:
-        subjects_response = get_subjects(exam)
-        subjects = subjects_response.get("subjects", [])
+        subjects = get_fallback_subjects(exam)
         
-        if not subjects:
-            subjects = get_fallback_subjects(exam)
-        
-        # Search in subjects
         matching_subjects = []
         query_lower = q.lower()
         
         for subject in subjects:
-            if (query_lower in subject["name"].lower() or 
-                query_lower in subject.get("slug", "").lower()):
+            if query_lower in subject["name"].lower():
                 matching_subjects.append(subject["name"])
         
-        # Get papers for matching subjects
         all_papers = []
         for subject_name in matching_subjects[:10]:
             try:
@@ -356,7 +332,6 @@ def search_papers(
         })
         
     except Exception as e:
-        # Fallback search results
         return JSONResponse({
             "success": True,
             "query": q,
@@ -375,10 +350,8 @@ def search_papers(
 def get_paper_info(url: str = Query(..., description="Full PDF URL")):
     """Get metadata about a specific paper without downloading"""
     try:
-        # Extract filename
         filename = url.split("/")[-1]
         
-        # Send HEAD request
         try:
             response = requests.head(url, headers=HEADERS, timeout=10, allow_redirects=True)
             status = response.status_code
